@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// consumer consumes logs that are commited from the applyCh
+// consumer consumes logs that are committed from the applyCh
 type consumer struct {
 	raft *Raft
 	logs map[uint64]*pb.Entry
@@ -57,7 +57,7 @@ type cluster struct {
 	numNodes    int
 	logger      *zap.Logger
 	rafts       map[uint32]*Raft
-	listerers   map[uint32]net.Listener
+	listeners   map[uint32]net.Listener
 	servers     map[uint32]*grpc.Server
 	cancelFuncs map[uint32]context.CancelFunc
 	consumers   map[uint32]*consumer
@@ -69,7 +69,7 @@ func newCluster(t *testing.T, numNodes int) *cluster {
 		t:           t,
 		numNodes:    numNodes,
 		rafts:       make(map[uint32]*Raft),
-		listerers:   make(map[uint32]net.Listener),
+		listeners:   make(map[uint32]net.Listener),
 		servers:     make(map[uint32]*grpc.Server),
 		cancelFuncs: make(map[uint32]context.CancelFunc),
 		consumers:   make(map[uint32]*consumer),
@@ -110,10 +110,10 @@ func (c *cluster) initialize(serverId uint32) {
 		c.t.Fatal("fail to setup network", err)
 	}
 
-	c.listerers[serverId] = lis
-	c.logger.Debug("setup listner",
+	c.listeners[serverId] = lis
+	c.logger.Debug("setup listener",
 		zap.Uint32("id", serverId),
-		zap.String("addr", c.listerers[serverId].Addr().String()))
+		zap.String("addr", c.listeners[serverId].Addr().String()))
 
 	// initialized peers without connection
 	peers := make(map[uint32]Peer)
@@ -150,7 +150,7 @@ func (c *cluster) initialize(serverId uint32) {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatal("fail to serve gRPC server:", err)
 		}
-	}(c.listerers[serverId])
+	}(c.listeners[serverId])
 }
 
 // start starts raft main loop and consumer loop without connection
@@ -206,7 +206,7 @@ func (c *cluster) connect(serverId, peerId uint32) {
 	peers := c.rafts[serverId].peers
 	peer := peers[peerId].(*peer)
 
-	addr := c.listerers[peerId].Addr().String()
+	addr := c.listeners[peerId].Addr().String()
 
 	c.logger.Debug("connect server with peer",
 		zap.Uint32("server", serverId),
@@ -319,14 +319,14 @@ func (c *cluster) checkLog(serverId uint32, logId uint64, term uint64, data []by
 	l := c.consumers[serverId].getLog(logId)
 
 	if l == nil {
-		c.t.Fatalf("log %d at server %d is not commited", logId, serverId)
+		c.t.Fatalf("log %d at server %d is not committed", logId, serverId)
 	}
 
 	if l.GetTerm() != term {
-		c.t.Fatalf("commited log %d at server %d has term mismatched the leader term", logId, serverId)
+		c.t.Fatalf("committed log %d at server %d has term mismatched the leader term", logId, serverId)
 	}
 	if data != nil && bytes.Compare(l.GetData(), data) != 0 {
-		c.t.Fatalf("commited log %d at server %d has data mismatched the given data", logId, serverId)
+		c.t.Fatalf("committed log %d at server %d has data mismatched the given data", logId, serverId)
 	}
 }
 
