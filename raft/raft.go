@@ -2,7 +2,6 @@ package raft
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/justin0u0/raft/pb"
@@ -28,9 +27,6 @@ type Raft struct {
 	rpcCh chan *rpc
 	// applyCh stores logs that can be applied
 	applyCh chan *pb.Entry
-
-	// for parallel
-	wg sync.WaitGroup
 }
 
 var _ pb.RaftServer = (*Raft)(nil)
@@ -102,7 +98,7 @@ func (r *Raft) appendEntries(req *pb.AppendEntriesRequest) (*pb.AppendEntriesRes
 	// DONE: (A.4) - if AppendEntries RPC received from new leader: convert to follower
 	// Log: r.logger.Info("receive request from leader, fallback to follower", zap.Uint64("term", r.currentTerm))
 	// for example, a candidate receive request from leader and then convert to follower
-	if r.state == Leader {
+	if req.Term >= r.currentTerm && r.state == Candidate {
 		r.toFollower(req.Term)
 		r.logger.Info("receive request from leader, fallback to follower", zap.Uint64("term", r.currentTerm))
 	}
@@ -316,7 +312,6 @@ func (r *Raft) runCandidate(ctx context.Context) {
 			return
 
 		case vote := <-voteCh:
-			r.wg.Wait()
 			r.handleVoteResult(vote, &grantedVotes, votesNeeded)
 
 		case <-timeoutCh:
@@ -355,9 +350,7 @@ func (r *Raft) broadcastRequestVote(ctx context.Context, voteCh chan *voteResult
 	for peerId, peer := range r.peers {
 		peerId := peerId
 		peer := peer
-		r.wg.Add(1)
 		go func() {
-			defer r.wg.Done()
 			resp, err := peer.RequestVote(ctx, req)
 			if err != nil {
 				r.logger.Error("fail to send RequestVote RPC", zap.Error(err), zap.Uint32("peer", peerId))
@@ -418,7 +411,6 @@ func (r *Raft) runLeader(ctx context.Context) {
 
 		case <-timeoutCh:
 			timeoutCh = randomTimeout(r.config.HeartbeatInterval)
-
 			r.broadcastAppendEntries(ctx, appendEntriesResultCh)
 
 		case result := <-appendEntriesResultCh:
@@ -432,7 +424,6 @@ func (r *Raft) runLeader(ctx context.Context) {
 
 func (r *Raft) broadcastAppendEntries(ctx context.Context, appendEntriesResultCh chan *appendEntriesResult) {
 	r.logger.Info("broadcast append entries")
-
 	for peerId, peer := range r.peers {
 		peerId := peerId
 		peer := peer
@@ -461,9 +452,7 @@ func (r *Raft) broadcastAppendEntries(ctx context.Context, appendEntriesResultCh
 
 		// DONE: (A.14) & (B.6)
 		// Hint: modify the code to send `AppendEntries` RPCs in parallel
-		r.wg.Add(1)
 		go func() {
-			defer r.wg.Done()
 			resp, err := peer.AppendEntries(ctx, req)
 			if err != nil {
 				r.logger.Error("fail to send AppendEntries RPC", zap.Error(err), zap.Uint32("peer", peerId))
@@ -479,7 +468,6 @@ func (r *Raft) broadcastAppendEntries(ctx context.Context, appendEntriesResultCh
 		}()
 
 	}
-	r.wg.Wait()
 }
 
 func (r *Raft) handleAppendEntriesResult(result *appendEntriesResult) {
